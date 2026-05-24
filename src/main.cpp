@@ -1,12 +1,66 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include "Scanner.h"
 
-int main(int argc, char* argv[]) {
-    // Eventually, we will pass a source code file here: ./compiler script.ext
-    if (argc == 1) {
-        std::cout << "Usage: compiler [path to script]" << std::endl;
-        return 64; // Standard exit code for incorrect usage
+// This function will eventually trigger your Lexer
+// This function triggers the Lexer and prints the raw Tokens
+void run(const std::string& source) {
+    Scanner scanner(source);
+    std::vector<Token> tokens = scanner.scanTokens();
+
+    // Loop through and print every single Token to the terminal!
+    for (const Token& token : tokens) {
+        std::cout << "[Line " << token.line << "] "
+                  << "Type ID: " << static_cast<int>(token.type) 
+                  << " | Lexeme: '" << token.lexeme << "'" << std::endl;
     }
 
-    std::cout << "Compiler initialized. Ready to read: " << argv[1] << std::endl;
+    // Stop the compiler from trying to execute if the scan failed
+    if (scanner.hasError) {
+        std::cerr << "\nCompilation halted due to lexical errors." << std::endl;
+        exit(65); // Standard exit code for data format errors
+    }
+}
+
+// Task 10: Read an entire file into memory
+void runFile(const char* path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Could not open file: " << path << std::endl;
+        exit(74); // Standard exit code for IO Error
+    }
+    
+    std::stringstream buffer;
+    buffer << file.rdbuf(); // Dump the whole file into the buffer
+    run(buffer.str());
+}
+
+// Task 9: The Interactive REPL
+void runPrompt() {
+    std::string line;
+    std::cout << "Custom Compiler REPL v1.0. Type 'exit' to quit.\n";
+    
+    for (;;) {
+        std::cout << "> ";
+        if (!std::getline(std::cin, line)) break; // Catch Ctrl+D
+        if (line == "exit") break;
+        
+        run(line);
+    }
+}
+
+int main(int argc, char* argv[]) {
+    if (argc > 2) {
+        std::cout << "Usage: compiler [script_path]" << std::endl;
+        return 64; 
+    } else if (argc == 2) {
+        // If they passed a file, run Task 10
+        runFile(argv[1]);
+    } else {
+        // If they just ran ./compiler, start the REPL (Task 9)
+        runPrompt();
+    }
     return 0;
 }

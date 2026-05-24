@@ -1,0 +1,8 @@
+// Arch Linux test script
+struct Vehicle [
+    let speed = 50.5;
+]
+
+if (my_car->speed >= 100) [
+    print "too fast!";
+]
