@@ -3,25 +3,29 @@
 #include <sstream>
 #include <string>
 #include "Scanner.h"
+#include "Parser.h"
+#include "AstPrinter.h"
 
 // This function will eventually trigger your Lexer
 // This function triggers the Lexer and prints the raw Tokens
 void run(const std::string& source) {
+    // 1. Lexical Analysis
     Scanner scanner(source);
     std::vector<Token> tokens = scanner.scanTokens();
-
-    // Loop through and print every single Token to the terminal!
-    for (const Token& token : tokens) {
-        std::cout << "[Line " << token.line << "] "
-                  << "Type ID: " << static_cast<int>(token.type) 
-                  << " | Lexeme: '" << token.lexeme << "'" << std::endl;
-    }
-
-    // Stop the compiler from trying to execute if the scan failed
     if (scanner.hasError) {
         std::cerr << "\nCompilation halted due to lexical errors." << std::endl;
-        exit(65); // Standard exit code for data format errors
+        exit(65);
     }
+
+    // 2. Parsing (Builds a sequence of statements)
+    Parser parser(tokens);
+    std::vector<std::unique_ptr<Stmt>> statements = parser.parse();
+
+    // If parsing failed completely or the file was blank, exit out
+    if (statements.empty()) return;
+
+    // 3. Simple Visual Confirmation
+    std::cout << "[Parser Success] Statements detected: " << statements.size() << std::endl;
 }
 
 // Task 10: Read an entire file into memory
@@ -45,7 +49,7 @@ void runPrompt() {
     for (;;) {
         std::cout << "> ";
         if (!std::getline(std::cin, line)) break; // Catch Ctrl+D
-        if (line == "exit") break;
+        if (line.rfind("exit", 0) == 0) break;
         
         run(line);
     }

@@ -28,7 +28,7 @@ enum class TokenType {
 };
 
 // 2. A type-safe way to hold either nothing, a 64-bit float, or a string
-using LiteralValue = std::variant<std::monostate, double, std::string>;
+using LiteralValue = std::variant<std::monostate, double, std::string, bool>;
 
 // 3. The core Token structure
 struct Token {
