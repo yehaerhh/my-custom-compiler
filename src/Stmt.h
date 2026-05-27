@@ -4,8 +4,29 @@
 #include "Token.h"
 #include "Expr.h"
 
-// The base class that all statements will inherit from
+// Forward declarations
+struct ExpressionStmt;
+struct PrintStmt;
+struct StructDecl;
+struct VarStmt;
+struct Block;
+struct IfStmt;
+struct WhileStmt;
+
+// Task 38: The Statement Visitor Interface
+struct StmtVisitor {
+    virtual void visitExpressionStmt(const ExpressionStmt* stmt) = 0;
+    virtual void visitPrintStmt(const PrintStmt* stmt) = 0;
+    virtual void visitStructDeclStmt(const StructDecl* stmt) = 0;
+    virtual void visitVarStmt(const VarStmt* stmt) = 0;
+    virtual void visitBlockStmt(const Block* stmt) = 0;
+    virtual void visitIfStmt(const IfStmt* stmt) = 0;
+    virtual void visitWhileStmt(const WhileStmt* stmt) = 0;
+    virtual ~StmtVisitor() = default;
+};
+
 struct Stmt {
+    virtual void accept(StmtVisitor* visitor) const = 0;
     virtual ~Stmt() = default;
 };
 
@@ -16,6 +37,8 @@ struct ExpressionStmt : public Stmt {
 
     explicit ExpressionStmt(std::unique_ptr<Expr> expression)
         : expression(std::move(expression)) {}
+
+    void accept(StmtVisitor* visitor) const override { visitor->visitExpressionStmt(this); }
 };
 
 // 2. Print Statement (e.g., "print 100;")
@@ -24,6 +47,8 @@ struct PrintStmt : public Stmt {
 
     explicit PrintStmt(std::unique_ptr<Expr> expression)
         : expression(std::move(expression)) {}
+
+    void accept(StmtVisitor* visitor) const override { visitor->visitPrintStmt(this); }
 };
 
 // 3. Struct Declaration (e.g., "struct Player [ let health; let speed; ]")
@@ -35,6 +60,8 @@ struct StructDecl : public Stmt {
 
     StructDecl(Token name, std::vector<Token> properties)
         : name(std::move(name)), properties(std::move(properties)) {}
+
+    void accept(StmtVisitor* visitor) const override { visitor->visitStructDeclStmt(this); }
 };
 
 // 4. Variable Declaration Statement (e.g., "let a = 5;")
@@ -44,6 +71,8 @@ struct VarStmt : public Stmt {
 
     VarStmt(Token name, std::unique_ptr<Expr> initializer)
         : name(std::move(name)), initializer(std::move(initializer)) {}
+
+    void accept(StmtVisitor* visitor) const override { visitor->visitVarStmt(this); }
 };
 
 // 5. Block Statement (e.g., [ let local = 10; print local; ])
@@ -52,6 +81,8 @@ struct Block : public Stmt {
 
     explicit Block(std::vector<std::unique_ptr<Stmt>> statements)
         : statements(std::move(statements)) {}
+
+    void accept(StmtVisitor* visitor) const override { visitor->visitBlockStmt(this); }
 };
 
 // 6. If Statement (e.g., if (x > 5) [ print 1; ] else [ print 0; ])
@@ -62,6 +93,8 @@ struct IfStmt : public Stmt {
 
     IfStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> thenBranch, std::unique_ptr<Stmt> elseBranch)
         : condition(std::move(condition)), thenBranch(std::move(thenBranch)), elseBranch(std::move(elseBranch)) {}
+    
+    void accept(StmtVisitor* visitor) const override { visitor->visitIfStmt(this); }
 };
 
 // 7. While Statement (Used as the core execution engine for loops)
@@ -71,4 +104,6 @@ struct WhileStmt : public Stmt {
 
     WhileStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> body)
         : condition(std::move(condition)), body(std::move(body)) {}
+    
+    void accept(StmtVisitor* visitor) const override { visitor->visitWhileStmt(this); }
 };

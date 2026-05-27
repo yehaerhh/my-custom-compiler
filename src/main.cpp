@@ -5,7 +5,9 @@
 #include "Scanner.h"
 #include "Parser.h"
 #include "AstPrinter.h"
+#include "Intrepreter.h"
 
+Interpreter interpreter;
 // This function will eventually trigger your Lexer
 // This function triggers the Lexer and prints the raw Tokens
 void run(const std::string& source) {
@@ -21,11 +23,10 @@ void run(const std::string& source) {
     Parser parser(tokens);
     std::vector<std::unique_ptr<Stmt>> statements = parser.parse();
 
-    // If parsing failed completely or the file was blank, exit out
     if (statements.empty()) return;
 
-    // 3. Simple Visual Confirmation
-    std::cout << "[Parser Success] Statements detected: " << statements.size() << std::endl;
+    // 3. Execution Engine (Task 39)
+    interpreter.interpret(statements);
 }
 
 // Task 10: Read an entire file into memory

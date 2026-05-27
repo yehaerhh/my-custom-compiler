@@ -73,6 +73,7 @@ private:
     std::unique_ptr<Stmt> declaration() {
         try {
             // If we match 'let', jump to variable declarations!
+            if (match({TokenType::KW_STRUCT})) return structDeclaration();
             if (match({TokenType::KW_LET})) return varDeclaration();
             
             return statement();
@@ -213,6 +214,17 @@ private:
         }
 
         return body;
+    }
+
+    std::unique_ptr<Stmt> structDeclaration() {
+        // 1. Consume the identifier name of the struct (e.g., "Engine")
+        Token name = consume(TokenType::IDENTIFIER, "Expect struct name.");
+        
+        // 2. Consume the trailing semicolon
+        consume(TokenType::SEMICOLON, "Expect ';' after struct declaration.");
+        
+        // 3. FIXED: Pass an empty vector to satisfy the (Token, std::vector<Token>) constructor signature
+        return std::make_unique<StructDecl>(name, std::vector<Token>{});
     }
 
     // Panic Recovery: If a syntax error happens, skip tokens until we find a 
@@ -365,6 +377,7 @@ private:
     }
 
     // Task 24: Parse Unary operators (!, -)
+    // Task 24: Parse Unary operators (!, -)
     std::unique_ptr<Expr> unary() {
         // If the current token is a ! or -, consume it and build a Unary node
         if (match({TokenType::BANG, TokenType::MINUS})) {
@@ -373,10 +386,50 @@ private:
             return std::make_unique<Unary>(std::move(op), std::move(right));
         }
 
-        // If there is no unary operator, fall down to the next level of precedence
-        return access();
+        // 1. Unary falls through directly to the combined Call/Access level!
+        return call(); 
     }
 
+    // Task 28 & 52: Parse function calls () and struct access ->
+    std::unique_ptr<Expr> call() {
+        // 2. Grab the base object first (e.g., 'Engine' or 'my_car')
+        std::unique_ptr<Expr> expr = primary(); 
+
+        // 3. Keep looping to chain ANY combination of () and -> together
+        while (true) {
+            if (match({TokenType::LEFT_PAREN})) {
+                // We saw a '(', parse it as a function/struct instantiation
+                expr = finishCall(std::move(expr));
+            } 
+            else if (match({TokenType::ARROW})) {
+                // We saw a '->', parse it as a property lookup
+                Token property = consume(TokenType::IDENTIFIER, "Expect property name after '->'.");
+                expr = std::make_unique<StructAccess>(std::move(expr), std::move(property));
+            } 
+            else {
+                // Neither '(' nor '->', we are done with this chain!
+                break; 
+            }
+        }
+
+        return expr;
+    }
+
+    // Helper to parse the arguments inside the brackets ()
+    std::unique_ptr<Expr> finishCall(std::unique_ptr<Expr> callee) {
+        std::vector<std::unique_ptr<Expr>> arguments;
+        
+        if (!check(TokenType::RIGHT_PAREN)) {
+            do {
+                arguments.push_back(expression());
+            } while (match({TokenType::COMMA}));
+        }
+        
+        Token paren = consume(TokenType::RIGHT_PAREN, "Expect ')' after arguments.");
+        
+        // Emits the Call node
+        return std::make_unique<Call>(std::move(callee), paren, std::move(arguments));
+    }
     // Task 23: Parse basic terminal expressions
     std::unique_ptr<Expr> primary() {
         // 1. Boolean and Null Literals
