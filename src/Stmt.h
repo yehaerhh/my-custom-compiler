@@ -2,7 +2,6 @@
 #include <memory>
 #include <vector>
 #include "Token.h"
-#include "Expr.h"
 
 // Forward declarations
 struct ExpressionStmt;
@@ -12,6 +11,9 @@ struct VarStmt;
 struct Block;
 struct IfStmt;
 struct WhileStmt;
+struct FunctionStmt;
+struct ReturnStmt;
+struct Expr;
 
 // Task 38: The Statement Visitor Interface
 struct StmtVisitor {
@@ -22,6 +24,8 @@ struct StmtVisitor {
     virtual void visitBlockStmt(const Block* stmt) = 0;
     virtual void visitIfStmt(const IfStmt* stmt) = 0;
     virtual void visitWhileStmt(const WhileStmt* stmt) = 0;
+    virtual void visitFunctionStmt(const FunctionStmt* stmt) = 0;
+    virtual void visitReturnStmt(const ReturnStmt* stmt) = 0;
     virtual ~StmtVisitor() = default;
 };
 
@@ -106,4 +110,31 @@ struct WhileStmt : public Stmt {
         : condition(std::move(condition)), body(std::move(body)) {}
     
     void accept(StmtVisitor* visitor) const override { visitor->visitWhileStmt(this); }
+};
+
+// Task 52: Function Declaration Node
+struct FunctionStmt : public Stmt {
+    Token name;
+    std::vector<Token> params;
+    std::unique_ptr<Stmt> body; // The execution block
+
+    FunctionStmt(Token name, std::vector<Token> params, std::unique_ptr<Stmt> body)
+        : name(std::move(name)), params(std::move(params)), body(std::move(body)) {}
+
+    void accept(StmtVisitor* visitor) const override {
+        visitor->visitFunctionStmt(this);
+    }
+};
+
+// Task 52: Return Statement Node
+struct ReturnStmt : public Stmt {
+    Token keyword;
+    std::unique_ptr<Expr> value; // The value being returned
+
+    ReturnStmt(Token keyword, std::unique_ptr<Expr> value)
+        : keyword(std::move(keyword)), value(std::move(value)) {}
+
+    void accept(StmtVisitor* visitor) const override {
+        visitor->visitReturnStmt(this);
+    }
 };

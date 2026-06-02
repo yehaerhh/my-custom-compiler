@@ -4,10 +4,37 @@
 #include "Environment.h"
 #include <iostream>
 #include <vector>
+#include <exception>
+#include <chrono>
+
+
+#include <exception>
+
+// Exception used to unwind the C++ call stack when a user's 'return' statement is hit!
+class ReturnException : public std::exception {
+public:
+    Object value;
+    explicit ReturnException(Object value) : value(std::move(value)) {}
+};
 
 class Interpreter : public ExprVisitor, public StmtVisitor {
 public:
-    // The master execution entry point loop
+    // 1. MOVE THIS HERE: The global environment must be accessible and initialized
+    std::shared_ptr<Environment> environment = std::make_shared<Environment>();
+
+    // 2. ADD THIS CONSTRUCTOR: It runs exactly once when the compiler starts up
+    Interpreter() {
+        // Define the native 'clock' function logic using C++ chrono
+        auto clockFn = std::make_shared<NativeFunction>(0, [](const std::vector<Object>& args) -> Object {
+            auto now = std::chrono::system_clock::now().time_since_epoch();
+            return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count()) / 1000.0;
+        });
+
+        // Inject the clock function into the global environment before any user code runs!
+        environment->define("clock", clockFn);
+    }
+
+    // 3. YOUR EXISTING METHOD: The master execution entry point loop
     void interpret(const std::vector<std::unique_ptr<Stmt>>& statements) {
         try {
             for (const auto& statement : statements) {
@@ -17,11 +44,8 @@ public:
             std::cerr << "Runtime Error: " << error.what() << std::endl;
         }
     }
-
 private:
     // Helper to evaluate statements
-
-    std::shared_ptr<Environment> environment = std::make_shared<Environment>();
 
     void execute(const Stmt* stmt) {
         stmt->accept(this);
@@ -51,6 +75,13 @@ private:
                 if (arg) std::cout << "<struct " << arg->toString() << ">";
                 else std::cout << "null";
             } else if constexpr (std::is_same_v<T, std::shared_ptr<StructInstance>>) {
+                if (arg) std::cout << arg->toString();
+                else std::cout << "null";
+            } else if constexpr (std::is_same_v<T, std::shared_ptr<RuntimeFunction>>) {
+                // Task 52: Safely handle printing function pointers!
+                if (arg) std::cout << arg->toString();
+                else std::cout << "null";
+            }else if constexpr (std::is_same_v<T, std::shared_ptr<NativeFunction>>) {
                 if (arg) std::cout << arg->toString();
                 else std::cout << "null";
             } else {
@@ -201,19 +232,73 @@ private:
 
     // Task 49 / Task 52: Dynamic Instantiation Engine
     Object visitCallExpr(const Call* expr) override {
-        // 1. Evaluate what we are trying to invoke (the identifier)
         Object callee = evaluate(expr->callee.get());
 
-        // 2. Check if the object inside the variable is a Struct Blueprint
+        // 1. Struct Instantiation (Task 49)
         if (std::holds_alternative<std::shared_ptr<StructBlueprint>>(callee)) {
             auto blueprint = std::get<std::shared_ptr<StructBlueprint>>(callee);
-            
-            // Allocate a brand-new unique memory instance of this specific blueprint!
             return std::make_shared<StructInstance>(blueprint);
         }
+        // 2. Function Execution (Task 52)
+        else if (std::holds_alternative<std::shared_ptr<RuntimeFunction>>(callee)) {
+            auto function = std::get<std::shared_ptr<RuntimeFunction>>(callee);
+            
+            // Check Arity (Argument count)
+            if (expr->arguments.size() != function->declaration->params.size()) {
+                throw std::runtime_error("Expected " + std::to_string(function->declaration->params.size()) + 
+                                         " arguments but got " + std::to_string(expr->arguments.size()) + ".");
+            }
 
-        throw std::runtime_error("Line " + std::to_string(expr->paren.line) + 
-                                 ": Can only instantiate registered structs.");
+            // Evaluate all arguments
+            std::vector<Object> args;
+            for (const auto& argExpr : expr->arguments) {
+                args.push_back(evaluate(argExpr.get()));
+            }
+
+            // Create a local isolated environment for the function parameters
+            auto callEnv = std::make_shared<Environment>(function->closure);
+            for (size_t i = 0; i < function->declaration->params.size(); ++i) {
+                callEnv->define(function->declaration->params[i].lexeme, args[i]);
+            }
+
+            // Execute the function body
+            std::shared_ptr<Environment> previous = this->environment;
+            this->environment = callEnv;
+            
+            try {
+                execute(function->declaration->body.get());
+            } catch (ReturnException& returnValue) {
+                // We caught a return jump! Restore environment and return the value.
+                this->environment = previous; 
+                return returnValue.value;
+            } catch (...) {
+                this->environment = previous;
+                throw;
+            }
+            
+            this->environment = previous;
+            return std::monostate{}; // Default to null if no return statement is hit
+        }// 3. Native C++ Function Execution (Task 53)
+        else if (std::holds_alternative<std::shared_ptr<NativeFunction>>(callee)) {
+            auto nativeFn = std::get<std::shared_ptr<NativeFunction>>(callee);
+            
+            if (expr->arguments.size() != nativeFn->arity) {
+                throw std::runtime_error("Line " + std::to_string(expr->paren.line) + 
+                                         ": Expected " + std::to_string(nativeFn->arity) + 
+                                         " arguments but got " + std::to_string(expr->arguments.size()) + ".");
+            }
+
+            // Evaluate all arguments
+            std::vector<Object> args;
+            for (const auto& argExpr : expr->arguments) {
+                args.push_back(evaluate(argExpr.get()));
+            }
+
+            // Call the underlying C++ logic!
+            return nativeFn->callable(args);
+        }
+
+        throw std::runtime_error("Can only call functions and structs.");
     }
 
     Object visitLiteralExpr(const Literal* expr) override {
@@ -246,6 +331,35 @@ private:
         throw std::runtime_error("Line " + std::to_string(expr->property.line) + 
                                  ": Runtime Error: Only struct instances can contain properties. Invalid arrow access.");
     }
+
+    // Task 51: Evaluate Struct Field Assignment (writing new values using ->)
+    Object visitStructSetExpr(const StructSet* expr) override {
+        // 1. Evaluate the base object expression
+        Object object = evaluate(expr->object.get());
+
+        // 2. Ensure it actually contains a heap-allocated StructInstance
+        if (std::holds_alternative<std::shared_ptr<StructInstance>>(object)) {
+            auto instance = std::get<std::shared_ptr<StructInstance>>(object);
+            if (!instance) {
+                throw std::runtime_error("Line " + std::to_string(expr->property.line) + 
+                                         ": Cannot assign property '" + expr->property.lexeme + 
+                                         "' to a null object reference.");
+            }
+
+            // 3. Evaluate the new right-hand value
+            Object value = evaluate(expr->value.get());
+
+            // 4. Save it into the instance's isolated field map
+            instance->set(expr->property, value);
+            
+            // 5. In C++, assignments evaluate to the assigned value (e.g., a = b = c)
+            return value;
+        }
+
+        throw std::runtime_error("Line " + std::to_string(expr->property.line) + 
+                                 ": Only struct instances have assignable fields.");
+    }
+
     // Task 44 & 49: Variable Lookups and Instantiations
     Object visitVariableExpr(const Variable* expr) override {
         return environment->get(expr->name); // Look up variables cleanly!
@@ -313,5 +427,21 @@ private:
         while (isTruthy(evaluate(stmt->condition.get()))) {
             execute(stmt->body.get());
         }
+    }
+
+    // Task 52 & 54: Register the function and CAPTURE the closure
+    void visitFunctionStmt(const FunctionStmt* stmt) override {
+        // Pass 'this->environment' to freeze a snapshot of the current scope
+        auto function = std::make_shared<RuntimeFunction>(stmt, this->environment);
+        environment->define(stmt->name.lexeme, function);
+    }
+
+    // Evaluates the return value and THROWS it up the C++ call stack to escape the block
+    void visitReturnStmt(const ReturnStmt* stmt) override {
+        Object value = std::monostate{};
+        if (stmt->value != nullptr) {
+            value = evaluate(stmt->value.get());
+        }
+        throw ReturnException(value); // Unwind!
     }
 };

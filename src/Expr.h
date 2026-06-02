@@ -4,23 +4,49 @@
 #include <variant>
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include "Token.h"
 
-// Forward declare our new runtime class structures
-class StructBlueprint;
-class StructInstance;
+// 1. FORWARD DECLARATIONS (CRITICAL)
+struct StructBlueprint;
+struct StructInstance;
+struct NativeFunction;
+struct RuntimeFunction; // <-- YOU WERE MISSING THIS
+class Environment;
 
-// Update the runtime object value type to support shared pointers to instances
+// 2. DEFINE OBJECT (Variant knows about the pointers now)
 using Object = std::variant<
     std::monostate, 
     double, 
     std::string, 
     bool,
-    std::shared_ptr<StructBlueprint>, // FIXED: Changed dot to comma
-    std::shared_ptr<StructInstance>   // Added for Task 49 allocations
+    std::shared_ptr<StructBlueprint>,
+    std::shared_ptr<StructInstance>,
+    std::shared_ptr<RuntimeFunction>,
+    std::shared_ptr<NativeFunction>
 >;
 
-// Forward declarations so the visitor interface knows these types exist
+// 3. INCLUDE CHUNK NOW (Because Chunk needs Object, which is now defined)
+#include "Chunk.h"
+
+// 4. FULLY DEFINE RUNTIMEFUNCTION (Because it needs Chunk)
+struct RuntimeFunction {
+    int arity;
+    Chunk chunk;
+    std::string name;
+
+    bool isMarked = false; // <--- ADD THIS
+
+    RuntimeFunction(std::string name, int arity) 
+        : name(std::move(name)), arity(arity) {}
+    
+    std::string toString() const { return "<fn " + name + ">"; }
+};
+
+// 5. NOW WE CAN INCLUDE STMT
+#include "Stmt.h"
+
+// Forward declarations for the visitor
 struct Binary;
 struct Unary;
 struct Literal;
@@ -28,7 +54,8 @@ struct Grouping;
 struct StructAccess;
 struct Variable;
 struct Assign;
-struct Call; // FIXED: Capitalized C
+struct Call;
+struct StructSet;
 
 // Task 38: The Expression Visitor Interface
 struct ExprVisitor {
@@ -40,6 +67,7 @@ struct ExprVisitor {
     virtual Object visitVariableExpr(const Variable* expr) = 0;
     virtual Object visitAssignExpr(const Assign* expr) = 0;
     virtual Object visitCallExpr(const Call* expr) = 0;
+    virtual Object visitStructSetExpr(const StructSet* expr) = 0;
     virtual ~ExprVisitor() = default;
 };
 
@@ -49,7 +77,9 @@ struct Expr {
     virtual ~Expr() = default;
 };
 
-// 1. Binary Expressions (e.g., a + b, x == y)
+// ... KEEP ALL YOUR AST STRUCTS BELOW THIS LINE (Binary, Unary, Literal, etc) ...
+
+ // 1. Binary Expressions (e.g., a + b, x == y)
 
 struct Binary : public Expr {
     std::unique_ptr<Expr> left;
@@ -64,7 +94,7 @@ struct Binary : public Expr {
     }
 };
 
-// 2. Unary Expressions (e.g., -a, !b)
+ // 2. Unary Expressions (e.g., -a, !b)
 struct Unary : public Expr {
     Token op;
     std::unique_ptr<Expr> right;
@@ -77,8 +107,8 @@ struct Unary : public Expr {
     }
 };
 
-// 3. Literal Expressions (e.g., 100.5, "hello", true)
-// 3. Literal Expressions (e.g., 100.5, "hello", true)
+ // 3. Literal Expressions (e.g., 100.5, "hello", true)
+ // 3. Literal Expressions (e.g., 100.5, "hello", true)
 struct Literal : public Expr {
     Object value;
 
@@ -121,6 +151,20 @@ struct StructAccess : public Expr {
 
     Object accept(ExprVisitor* visitor) const override {
         return visitor->visitStructAccessExpr(this);
+    }
+};
+
+// Task 51: Struct Field Assignment Expressions (e.g., my_car->speed = 60)
+struct StructSet : public Expr {
+    std::unique_ptr<Expr> object; // The base instance
+    Token property;               // The field name
+    std::unique_ptr<Expr> value;  // The new value being written
+
+    StructSet(std::unique_ptr<Expr> object, Token property, std::unique_ptr<Expr> value)
+        : object(std::move(object)), property(std::move(property)), value(std::move(value)) {}
+
+    Object accept(ExprVisitor* visitor) const override {
+        return visitor->visitStructSetExpr(this);
     }
 };
 
@@ -174,18 +218,23 @@ public:
 
 // Task 49: The actual allocated object container on the heap
 class StructInstance {
-private:
+public: // Everything must be public for the VM to access it!
     std::shared_ptr<StructBlueprint> blueprint;
     std::unordered_map<std::string, Object> fields;
 
-public:
+    bool isMarked = false; // <--- ADD THIS
+
+    // 1. Only ONE constructor
     explicit StructInstance(std::shared_ptr<StructBlueprint> blueprint) 
         : blueprint(std::move(blueprint)) {}
 
-    std::string toString() const {
-        return blueprint->name + " instance";
+    // 2. Only ONE toString method (with the fixed string concatenation)
+    std::string toString() const { 
+        if (blueprint) return "<instance " + blueprint->name + ">";
+        return "<instance anonymous>"; 
     }
 
+    // 3. Keep the old tree-walk methods just so the old AST nodes don't break
     Object get(const Token& nameToken) {
         if (fields.find(nameToken.lexeme) != fields.end()) {
             return fields[nameToken.lexeme];
@@ -197,3 +246,16 @@ public:
         fields[nameToken.lexeme] = value;
     }
 };
+
+// Task 53: A wrapper for underlying C++ functions injected into the environment
+class NativeFunction {
+public:
+    int arity; // How many arguments the native function expects
+    std::function<Object(const std::vector<Object>&)> callable;
+
+    NativeFunction(int arity, std::function<Object(const std::vector<Object>&)> callable)
+        : arity(arity), callable(std::move(callable)) {}
+
+    std::string toString() const { return "<native fn>"; }
+};
+

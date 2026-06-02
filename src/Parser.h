@@ -73,6 +73,7 @@ private:
     std::unique_ptr<Stmt> declaration() {
         try {
             // If we match 'let', jump to variable declarations!
+            if (match({TokenType::KW_FN})) return functionDeclaration("function");
             if (match({TokenType::KW_STRUCT})) return structDeclaration();
             if (match({TokenType::KW_LET})) return varDeclaration();
             
@@ -85,6 +86,7 @@ private:
 
 
     std::unique_ptr<Stmt> statement() {
+        if (match({TokenType::KW_RETURN})) return returnStatement();
         if (match({TokenType::KW_FOR})) return forStatement(); // Catch loop syntax
         if (match({TokenType::KW_IF})) return ifStatement();
         if (match({TokenType::KW_PRINT})) return printStatement();
@@ -111,6 +113,35 @@ private:
         // Variable statements must end with a semicolon
         consume(TokenType::SEMICOLON, "Expect ';' after variable declaration.");
         return std::make_unique<VarStmt>(std::move(name), std::move(initializer));
+    }
+
+    std::unique_ptr<Stmt> functionDeclaration(std::string kind) {
+        Token name = consume(TokenType::IDENTIFIER, "Expect " + kind + " name.");
+        consume(TokenType::LEFT_PAREN, "Expect '(' after " + kind + " name.");
+        
+        std::vector<Token> parameters;
+        if (!check(TokenType::RIGHT_PAREN)) {
+            do {
+                parameters.push_back(consume(TokenType::IDENTIFIER, "Expect parameter name."));
+            } while (match({TokenType::COMMA}));
+        }
+        consume(TokenType::RIGHT_PAREN, "Expect ')' after parameters.");
+        consume(TokenType::LEFT_BRACKET, "Expect '[' before " + kind + " body.");
+        
+        // Parse the block body (your existing block() method)
+        std::unique_ptr<Stmt> body = std::make_unique<Block>(block());
+        
+        return std::make_unique<FunctionStmt>(std::move(name), std::move(parameters), std::move(body));
+    }
+
+    std::unique_ptr<Stmt> returnStatement() {
+        Token keyword = previous();
+        std::unique_ptr<Expr> value = nullptr;
+        if (!check(TokenType::SEMICOLON)) {
+            value = expression();
+        }
+        consume(TokenType::SEMICOLON, "Expect ';' after return value.");
+        return std::make_unique<ReturnStmt>(std::move(keyword), std::move(value));
     }
 
     std::unique_ptr<Stmt> printStatement() {
@@ -273,6 +304,10 @@ private:
             if (Variable* v = dynamic_cast<Variable*>(expr.get())) {
                 Token name = v->name;
                 return std::make_unique<Assign>(name, std::move(value));
+            }
+            else if (StructAccess* access = dynamic_cast<StructAccess*>(expr.get())) {
+                // Extract the object and property from the parsed access node, and build a SET node!
+                return std::make_unique<StructSet>(std::move(access->object), access->property, std::move(value));
             }
 
             // If it's not a valid storage variable, throw an error but don't crash the parser panic loop

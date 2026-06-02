@@ -4,29 +4,28 @@
 #include <string>
 #include "Scanner.h"
 #include "Parser.h"
-#include "AstPrinter.h"
-#include "Intrepreter.h"
+#include "Chunk.h"
+#include "Debug.h"
+#include "VM.h"
+#include "Compiler.h"
 
-Interpreter interpreter;
-// This function will eventually trigger your Lexer
-// This function triggers the Lexer and prints the raw Tokens
+
 void run(const std::string& source) {
-    // 1. Lexical Analysis
     Scanner scanner(source);
     std::vector<Token> tokens = scanner.scanTokens();
-    if (scanner.hasError) {
-        std::cerr << "\nCompilation halted due to lexical errors." << std::endl;
-        exit(65);
-    }
-
-    // 2. Parsing (Builds a sequence of statements)
+    
     Parser parser(tokens);
     std::vector<std::unique_ptr<Stmt>> statements = parser.parse();
 
-    if (statements.empty()) return;
+    Chunk chunk;
+    Compiler compiler; // Call the default constructor (which is fine!)
+    
+    // Use your specific compile method:
+    compiler.compile(statements, &chunk);
 
-    // 3. Execution Engine (Task 39)
-    interpreter.interpret(statements);
+    // Run the VM
+    VM vm;
+    vm.interpret(&chunk);
 }
 
 // Task 10: Read an entire file into memory
@@ -56,16 +55,37 @@ void runPrompt() {
     }
 }
 
-int main(int argc, char* argv[]) {
-    if (argc > 2) {
-        std::cout << "Usage: compiler [script_path]" << std::endl;
-        return 64; 
-    } else if (argc == 2) {
-        // If they passed a file, run Task 10
-        runFile(argv[1]);
-    } else {
-        // If they just ran ./compiler, start the REPL (Task 9)
-        runPrompt();
-    }
+
+
+int main() {
+    // 1. The Source Code
+    // The first line calculates 99 but should immediately pop it.
+    // The second line calculates 5 and prints it.
+    std::string source = 
+        "let myCar = Vehicle(); "
+        "myCar->speed = 120; "
+        "print myCar->speed;";
+    
+    // 2. Scan to Tokens
+    Scanner scanner(source);
+    std::vector<Token> tokens = scanner.scanTokens();
+    
+    // 3. Parse to AST
+    Parser parser(tokens);
+    std::vector<std::unique_ptr<Stmt>> statements = parser.parse();
+    
+    // 4. Compile AST to Bytecode
+    Chunk chunk;
+    Compiler compiler;
+    compiler.compile(statements, &chunk);
+    
+    // 5. Verify the emitted bytecode
+    Debugger::disassembleChunk(&chunk, "Compiled AST");
+    
+    // 6. Execute in the Virtual Machine!
+    VM vm;
+    std::cout << "\n--- Starting VM ---\n";
+    vm.interpret(&chunk);
+    
     return 0;
 }

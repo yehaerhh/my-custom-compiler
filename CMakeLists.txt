@@ -1,17 +1,25 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Name of your project
-project(MyCompiler)
+project(MyCompiler CXX)
 
 # Force modern C++ standards
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# Tell it to build an executable named 'compiler' using main.cpp
-add_executable(compiler src/main.cpp)
+# --- 1. NEW: Strict Warnings & Debugging ---
+add_compile_options(-Wall -Wextra -Wpedantic -g)
 
+# --- 2. NEW: Global Include Directory ---
+include_directories(src)
 
-# Enable testing
+# --- 3. CHANGED: Auto-detect all source files ---
+file(GLOB SOURCES "src/*.cpp")
+
+# Tell it to build the main executable using the auto-detected sources
+add_executable(compiler ${SOURCES})
+
+# --- YOUR GOOGLETEST SETUP (PRESERVED) ---
 enable_testing()
 
 # Find the GoogleTest library on your Arch system
