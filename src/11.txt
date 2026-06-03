@@ -1,0 +1,21 @@
+struct AphelionState [
+    let position;
+    let velocity;
+];
+
+let kart = AphelionState();
+kart->position = 0;
+kart->velocity = 10;
+
+// Simulate 4 discrete ticks of movement
+let t = 4;
+for (t = 4; t > 0; t = t - 1) [
+    kart->position = kart->position + kart->velocity;
+    kart->velocity = kart->velocity - 2; // Apply braking friction
+]
+
+// Tick 1: pos=10, vel=8
+// Tick 2: pos=18, vel=6
+// Tick 3: pos=24, vel=4
+// Tick 4: pos=28, vel=2
+print kart->position;

@@ -32,13 +32,12 @@ using Object = std::variant<
 // 4. FULLY DEFINE RUNTIMEFUNCTION (Because it needs Chunk)
 struct RuntimeFunction {
     int arity;
-    Chunk chunk;
     std::string name;
 
     bool isMarked = false; // <--- ADD THIS
 
-    RuntimeFunction(std::string name, int arity) 
-        : name(std::move(name)), arity(arity) {}
+    RuntimeFunction(std::string name, int arity)
+        : arity(arity), name(name) {} // Match the order here too
     
     std::string toString() const { return "<fn " + name + ">"; }
 };

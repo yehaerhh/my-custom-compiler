@@ -248,14 +248,29 @@ private:
     }
 
     std::unique_ptr<Stmt> structDeclaration() {
-        // 1. Consume the identifier name of the struct (e.g., "Engine")
+        // 1. Consume the identifier name of the struct (e.g., "Point")
         Token name = consume(TokenType::IDENTIFIER, "Expect struct name.");
         
-        // 2. Consume the trailing semicolon
+        // 2. Consume the opening bracket '['
+        consume(TokenType::LEFT_BRACKET, "Expect '[' before struct body.");
+        
+        // 3. Loop through the body and collect all the property names!
+        std::vector<Token> properties;
+        while (!check(TokenType::RIGHT_BRACKET) && !isAtEnd()) {
+            consume(TokenType::KW_LET, "Expect 'let' in struct.");
+            Token propName = consume(TokenType::IDENTIFIER, "Expect property name.");
+            properties.push_back(propName); // Save 'x', 'y', etc.
+            consume(TokenType::SEMICOLON, "Expect ';' after property declaration.");
+        }
+        
+        // 4. Consume the closing bracket ']'
+        consume(TokenType::RIGHT_BRACKET, "Expect ']' after struct body.");
+        
+        // 5. Consume the trailing semicolon (since your previous test required it!)
         consume(TokenType::SEMICOLON, "Expect ';' after struct declaration.");
         
-        // 3. FIXED: Pass an empty vector to satisfy the (Token, std::vector<Token>) constructor signature
-        return std::make_unique<StructDecl>(name, std::vector<Token>{});
+        // 6. Pass the ACTUAL list of properties to the AST node
+        return std::make_unique<StructDecl>(name, properties);
     }
 
     // Panic Recovery: If a syntax error happens, skip tokens until we find a 

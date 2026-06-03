@@ -15,6 +15,12 @@ std::unordered_map<std::string, std::unordered_map<std::string, uint16_t>> struc
 std::unordered_map<std::string, uint16_t> globalPropertyOffsets;
 class Compiler : public ExprVisitor, public StmtVisitor {
 public:
+    // --- ADD THESE MAPS HERE ---
+    std::unordered_map<std::string, uint16_t> structSizes;
+    std::unordered_map<std::string, uint16_t> globalPropertyOffsets;
+    // Add to the top of the Compiler class:
+    std::vector<Token> currentFunctionParams;
+    // ---------------------------
     // --- TASK 88: THE ASSEMBLY OUTPUT ---
     std::vector<std::string> assemblyOutput;
     int currentLine = 0;
@@ -143,19 +149,20 @@ public:
     }
 
     Object visitVariableExpr(const Variable* expr) override {
-        // Look up the physical RAM address of the variable
+        // 1. Look up the physical RAM address of the variable
         uint16_t addr = variables[expr->name.lexeme];
         
-        std::string addrReg = allocateReg();
-        std::string destReg = allocateReg();
+        // 2. Allocate just ONE register to do all the work
+        std::string reg = allocateReg();
 
-        // Load the address, then load the value from RAM into our destination register
-        emitLine("    LOAD_ADDR " + addrReg + " " + std::to_string(addr));
-        emitLine("    LOAD " + destReg + " " + addrReg); // LOAD dest, [addr]
+        // 3. Load the 16-bit address into our register
+        emitLine("    LOAD_ADDR " + reg + " " + std::to_string(addr));
+        
+        // 4. Overwrite the register with the actual data value stored at that address
+        emitLine("    LOAD " + reg + " " + reg); // LOAD reg, [reg]
 
-        // Free the temporary address register, keep the destination register active
-        freeReg(); 
-        lastResultReg = destReg;
+        // 5. Tell the compiler where the result is. Do NOT call freeReg() here!
+        lastResultReg = reg;
         
         return std::monostate{};
     }
@@ -163,31 +170,36 @@ public:
     Object visitBinaryExpr(const Binary* expr) override {
         // 1. Calculate the Left side
         expr->left->accept(this);
-        std::string leftReg = lastResultReg;
+        
+        // --- NEW: PROTECT THE LEFT SIDE! ---
+        // Push it to the hardware stack so the right side cannot destroy it!
+        emitLine("    PUSH " + lastResultReg); 
+        freeReg(); // Free the register so the right side has all CPU registers available
+        // -----------------------------------
 
         // 2. Calculate the Right side
         expr->right->accept(this);
         std::string rightReg = lastResultReg;
 
-        // 3. Free the two source registers so we can reuse them!
-        freeReg(); 
-        freeReg(); 
+        // --- NEW: RESTORE THE LEFT SIDE! ---
+        // Allocate a new register and Pop the left side back into it
+        std::string leftReg = allocateReg();
+        emitLine("    POP " + leftReg);
+        // -----------------------------------
 
-        // 4. Allocate a new register for the final result
-        std::string destReg = allocateReg();
-
+        // 3. Do the actual math (Saving the result directly into leftReg)
         switch (expr->op.type) {
             case TokenType::PLUS:  
-                emitLine("    ADD " + destReg + " " + leftReg + " " + rightReg); 
+                emitLine("    ADD " + leftReg + " " + leftReg + " " + rightReg); 
                 break;
             case TokenType::MINUS: 
-                emitLine("    SUB " + destReg + " " + leftReg + " " + rightReg); 
+                emitLine("    SUB " + leftReg + " " + leftReg + " " + rightReg); 
                 break;
             case TokenType::STAR:  
-                emitLine("    MUL " + destReg + " " + leftReg + " " + rightReg); 
+                emitLine("    MUL " + leftReg + " " + leftReg + " " + rightReg); 
                 break;
             case TokenType::SLASH: 
-                emitLine("    DIV " + destReg + " " + leftReg + " " + rightReg); 
+                emitLine("    DIV " + leftReg + " " + leftReg + " " + rightReg); 
                 break;
             case TokenType::EQUAL_EQUAL:   
             case TokenType::LESS:
@@ -198,7 +210,19 @@ public:
             default: break;
         }
 
-        lastResultReg = destReg;
+        // 4. LIFO CLEANUP!
+        // Right now, leftReg is on TOP of rightReg in the allocator stack.
+        // We move our final answer down into rightReg, and free leftReg!
+        if (expr->op.type != TokenType::EQUAL_EQUAL && 
+            expr->op.type != TokenType::LESS && 
+            expr->op.type != TokenType::GREATER) {
+            emitLine("    MOV_REG " + rightReg + " " + leftReg);
+        }
+        
+        freeReg(); // Frees leftReg
+
+        // Keep the final answer locked in rightReg for the parent statement!
+        lastResultReg = rightReg; 
         return std::monostate{};
     }
 
@@ -209,74 +233,136 @@ public:
             statement->accept(this);
         }
     }
-
     void visitWhileStmt(const WhileStmt* stmt) override {
         std::string loopStart = "loop_start_" + std::to_string(labelCounter);
         std::string loopEnd = "loop_end_" + std::to_string(labelCounter++);
 
+        // 1. Drop the loop start anchor label
         emitLine(loopStart + ":");
-        stmt->condition->accept(this); // Evaluate condition
+        
+        // 2. Evaluate condition (e.g., n > 0). 
+        // This automatically emits your LOADs and your hardware CMP instruction, setting CPU flags!
+        stmt->condition->accept(this); 
 
-        emitLine("    JNE " + loopEnd); // Jump if false
+        // 3. FIX: Change JNE to JEQ so it jumps to the end ONLY when the condition becomes false (0)
+        emitLine("    JEQ " + loopEnd); 
         freeReg(); 
 
-        stmt->body->accept(this); // Run the loop body
-        emitLine("    JMP " + loopStart); // Jump back to top
+        // 4. Run the desugared loop body (which includes your body + increment step)
+        stmt->body->accept(this); 
+        
+        // 5. Jump back to the top of the loop
+        emitLine("    JMP " + loopStart); 
 
+        // 6. Drop the loop exit anchor label
         emitLine(loopEnd + ":");
-    }
-    
-    void visitStructDeclStmt(const StructDecl* stmt) override {
-        // We don't generate any CPU code here! We just create a blueprint.
-        std::unordered_map<std::string, uint16_t> offsets;
-        uint16_t currentOffset = 0;
-
-        // Assuming your StructDecl has a list of properties/fields (adjust names as per your AST)
-        /* for (const auto& method : stmt->methods) { // Or stmt->fields
-            offsets[method->name.lexeme] = currentOffset;
-            currentOffset += 2; // Each 16-bit property takes 2 bytes
-        }
-        */
-        
-        // Save the blueprint in the compiler's memory
-        // structBlueprints[stmt->name.lexeme] = offsets;
-        
-        // Add a comment to the assembly output for debugging
-        emitLine("    ; Struct Blueprint compiled: " + stmt->name.lexeme);
     }
     void visitFunctionStmt(const FunctionStmt* stmt) override {
         std::string funcLabel = stmt->name.lexeme;
         std::string endLabel = "end_func_" + stmt->name.lexeme;
 
-        // 1. Jump OVER the function code so it doesn't execute linearly
         emitLine("    JMP " + endLabel);
-
-        // 2. Mark the entry point for the CALL instruction to land on
         emitLine(funcLabel + ":");
 
-        // 3. Compile the inside of the function
+        currentFunctionParams = stmt->params;
+        
+        if (!stmt->params.empty()) {
+            // 1. Move the Return Address out of the way!
+            std::string retAddr = allocateReg();
+            emitLine("    POP " + retAddr);
+
+            // 2. Pop arguments from stack into temporary registers
+            std::vector<std::string> argRegs;
+            for (int i = stmt->params.size() - 1; i >= 0; i--) {
+                std::string r = allocateReg();
+                emitLine("    POP " + r);
+                argRegs.push_back(r);
+            }
+
+            // 3. Back up the Caller's global variables to the stack
+            for (const auto& param : stmt->params) {
+                if (variables.find(param.lexeme) == variables.end()) {
+                    variables[param.lexeme] = nextRamAddress;
+                    nextRamAddress += 2;
+                }
+                std::string addrReg = allocateReg();
+                emitLine("    LOAD_ADDR " + addrReg + " " + std::to_string(variables[param.lexeme]));
+                emitLine("    LOAD " + addrReg + " " + addrReg);
+                emitLine("    PUSH " + addrReg);
+                freeReg();
+            }
+
+            // 4. Put the Return Address back on top so RET doesn't break!
+            emitLine("    PUSH " + retAddr);
+
+            // 5. Store the passed arguments into the local variables
+            for (size_t i = 0; i < stmt->params.size(); i++) {
+                std::string valReg = argRegs[stmt->params.size() - 1 - i];
+                std::string addrReg = allocateReg();
+                emitLine("    LOAD_ADDR " + addrReg + " " + std::to_string(variables[stmt->params[i].lexeme]));
+                emitLine("    STORE " + addrReg + " " + valReg);
+                freeReg();
+            }
+
+            // Clean up temporaries
+            for (size_t i = 0; i < argRegs.size(); i++) freeReg();
+            freeReg(); // Free retAddr
+        }
+
         stmt->body->accept(this);
 
-        // 4. Hardware return (Pops the PC off the stack)
+        currentFunctionParams.clear();
         emitLine("    RET");
-
-        // 5. Mark the end of the jump
         emitLine(endLabel + ":");
     }
     void visitReturnStmt(const ReturnStmt* stmt) override {
         if (stmt->value != nullptr) {
-            // Calculate the return value
             stmt->value->accept(this);
-            
-            // Move the result into R0 (The official return register)
             emitLine("    MOV_REG R0 " + lastResultReg);
-            
-            // Free the temporary register used for the calculation
-            freeReg(); 
+            freeReg();
         }
         
-        // Pop the stack and go back to the caller
+        if (!currentFunctionParams.empty()) {
+            std::string protectR0 = allocateReg(); // Lock R0!
+            
+            // 1. Move Return Address out of the way
+            std::string retAddr = allocateReg();
+            emitLine("    POP " + retAddr);
+
+            // 2. Restore global variables from the stack
+            for (int i = currentFunctionParams.size() - 1; i >= 0; i--) {
+                std::string valReg = allocateReg();
+                emitLine("    POP " + valReg);
+                
+                std::string addrReg = allocateReg();
+                emitLine("    LOAD_ADDR " + addrReg + " " + std::to_string(variables[currentFunctionParams[i].lexeme]));
+                emitLine("    STORE " + addrReg + " " + valReg);
+                
+                freeReg(); 
+                freeReg(); 
+            }
+
+            // 3. Put Return Address back
+            emitLine("    PUSH " + retAddr);
+            
+            freeReg(); // Free retAddr
+            freeReg(); // Free protectR0
+        }
+
         emitLine("    RET");
+    }
+    void visitStructDeclStmt(const StructDecl* stmt) override {
+        uint16_t currentOffset = 0;
+        
+        // FIX: Loop through your 'properties' vector!
+        for (const auto& prop : stmt->properties) { 
+            // Map each property token's lexeme string to its memory byte offset (0, 2, 4, etc.)
+            globalPropertyOffsets[prop.lexeme] = currentOffset;
+            currentOffset += 2; 
+        }
+        
+        // Save the total size of the struct so we know how much RAM to allocate later
+        structSizes[stmt->name.lexeme] = currentOffset; 
     }
     Object visitGroupingExpr(const Grouping* expr) override {
         // Just visit the expression inside the parentheses!
@@ -334,7 +420,7 @@ public:
         return std::monostate{};
     }
     Object visitCallExpr(const Call* expr) override {
-        // Find out the name of the function being called
+        // Find out the name of the function/struct being called
         std::string funcName = "";
         if (auto var = dynamic_cast<Variable*>(expr->callee.get())) {
             funcName = var->name.lexeme;
@@ -343,53 +429,72 @@ public:
             return std::monostate{};
         }
 
+        // --- NEW: IS THIS A STRUCT INSTANTIATION? ---
+        if (structSizes.find(funcName) != structSizes.end()) {
+            // It's a struct! Grab its base address and reserve a chunk of RAM
+            uint16_t baseAddr = nextRamAddress;
+            nextRamAddress += structSizes[funcName]; 
+            
+            // Return the base pointer address in a safe register
+            std::string resultReg = allocateReg();
+            emitLine("    LOAD_ADDR " + resultReg + " " + std::to_string(baseAddr));
+            lastResultReg = resultReg;
+            
+            return std::monostate{}; // Exit early, do NOT emit a CALL instruction!
+        }
+        // --------------------------------------------
+
+        // --- NEW: PUSH ARGUMENTS TO THE HARDWARE STACK ---
+        for (const auto& arg : expr->arguments) {
+            arg->accept(this);
+            emitLine("    PUSH " + lastResultReg); // Save argument to stack
+            freeReg(); // Free the math register
+        }
+        // -------------------------------------------------
+
         // 1. Allocate a temporary register to hold the function's memory address
-        std::string addrReg = allocateReg();
+        std::string addrReg = allocateReg(); // Allocates R0
         
         // 2. Load the label (Assembler Pass 2 will replace this with a number)
         emitLine("    LOAD_ADDR " + addrReg + " " + funcName);
         
-        // 3. Fire the hardware CALL opcode (Pushes current PC to stack, jumps to addrReg)
+        // 3. Fire the hardware CALL opcode
         emitLine("    CALL " + addrReg);
         
-        // 4. The function has returned! Grab the answer from R0.
-        std::string resultReg = allocateReg();
-        emitLine("    MOV_REG " + resultReg + " R0");
+        // FIX: Free the address register IMMEDIATELY here while it is at the top of the stack!
+        freeReg(); // Frees R0. Allocator stack is clean and empty again.
+        
+        // 4. The function has returned! Grab the answer from hardware register R0.
+        std::string resultReg = allocateReg(); // Allocates R0 safely!
+        emitLine("    MOV_REG " + resultReg + " R0"); // MOV_REG R0 R0 (Safe operation/no-op)
 
-        // Clean up the address register, but keep the result register active!
-        freeReg(); 
-        lastResultReg = resultReg;
+        // Keep the result register active for the parent statement
+        lastResultReg = resultReg; // Points to R0, which is safely locked.
 
         return std::monostate{};
     }
     Object visitStructAccessExpr(const StructAccess* expr) override {
-        // 1. Compile the object (e.g., "player"). 
-        // NOTE: Your visitVariableExpr needs to be slightly tweaked to return 
-        // the BASE ADDRESS of the struct, not the value, if it's an object!
+        // 1. Compile the object to get the Base Address
         expr->object->accept(this);
-        std::string baseAddrReg = lastResultReg;
+        std::string baseAddrReg = lastResultReg; // e.g., Allocates R0
 
-        // 2. Look up the byte offset for this property (e.g., "y" = 2)
+        // 2. Look up the byte offset
         uint16_t offset = globalPropertyOffsets[expr->property.lexeme];
 
-        // 3. Load the offset into a register
-        std::string offsetReg = allocateReg();
+        // 3. Allocate ONE temporary register for the offset
+        std::string offsetReg = allocateReg(); // e.g., Allocates R1
         emitLine("    MOV_IMM " + offsetReg + " " + std::to_string(offset));
 
-        // 4. Do the Pointer Math: Base Address + Offset
-        std::string finalAddrReg = allocateReg();
-        emitLine("    ADD " + finalAddrReg + " " + baseAddrReg + " " + offsetReg);
+        // 4. Do the math and put the result back into baseAddrReg!
+        emitLine("    ADD " + baseAddrReg + " " + baseAddrReg + " " + offsetReg);
 
-        // 5. Load the actual value from that calculated RAM address!
-        std::string destReg = allocateReg();
-        emitLine("    LOAD " + destReg + " " + finalAddrReg);
+        // 5. Load the actual value directly into baseAddrReg!
+        emitLine("    LOAD " + baseAddrReg + " " + baseAddrReg);
 
-        // Clean up all the math registers!
-        freeReg(); // Free finalAddrReg
-        freeReg(); // Free offsetReg
-        freeReg(); // Free baseAddrReg
+        // 6. Free the offset register. 
+        freeReg(); // Frees R1. R0 (baseAddrReg) remains locked safely!
 
-        lastResultReg = destReg;
+        lastResultReg = baseAddrReg; 
         return std::monostate{};
     }
     Object visitStructSetExpr(const StructSet* expr) override {

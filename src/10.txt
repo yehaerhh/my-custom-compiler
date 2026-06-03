@@ -1,0 +1,11 @@
+fn fib(n) [
+    if (n == 0) [ return 0; ]
+    if (n == 1) [ return 1; ]
+    
+    // Evaluates a function, saves the result, evaluates another, then adds them.
+    // Massive stress test for your visitCallExpr register cleanup!
+    return fib(n - 1) + fib(n - 2);
+]
+
+let f = fib(6);
+print f;

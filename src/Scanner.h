@@ -10,8 +10,8 @@ private:
     std::vector<Token> tokens;
 
     // Tracking our position in the source code
-    int start = 0;
-    int current = 0;
+    size_t start = 0;
+    size_t current = 0;
     int line = 1;
 
     // Task 19: The Keyword Dictionary

@@ -1,0 +1,19 @@
+struct State [
+    let position;
+    let velocity;
+    let kalmanGain;
+];
+
+fn updateState(s) [
+    s->velocity = s->velocity + 2;
+    s->position = s->position + (s->velocity * s->kalmanGain);
+    return 1;
+]
+
+let kart = State();
+kart->position = 10;
+kart->velocity = 5;
+kart->kalmanGain = 3;
+
+let status = updateState(kart);
+print kart->position;

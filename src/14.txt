@@ -1,0 +1,15 @@
+struct Node [
+    let value;
+    let next;
+];
+
+let head = Node();
+head->value = 100;
+
+let second = Node();
+second->value = 200;
+
+head->next = second;
+
+let ptr = head->next;
+print ptr->value;

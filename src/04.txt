@@ -1,0 +1,8 @@
+let n = 5;
+let result = 1;
+
+for (n = 5; n > 0; n = n - 1) [
+    result = result * n;
+]
+
+print result;

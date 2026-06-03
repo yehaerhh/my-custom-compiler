@@ -1,0 +1,7 @@
+let rollNumber = 20;
+
+// This forces the compiler to hold multiple registers open simultaneously
+// while it evaluates the inner parentheses. Does it run out of R-slots?
+let alpha = rollNumber + (2 * (3 + (4 * (5 + (6 * 7)))));
+
+print alpha;

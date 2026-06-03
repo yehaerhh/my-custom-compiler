@@ -1,0 +1,6 @@
+fn getSecretNumber() [
+    return 'a';
+]
+
+let x = getSecretNumber();
+print x;

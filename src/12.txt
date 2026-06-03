@@ -1,0 +1,11 @@
+fn getMultiplier() [
+    return 5;
+]
+
+fn calculateYield(base) [
+    // Calls a function inside another function!
+    return base * getMultiplier();
+]
+
+let yield = calculateYield(10);
+print yield;

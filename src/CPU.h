@@ -143,7 +143,7 @@ public:
                     // but it DOES NOT save the result. It ONLY updates the FLAGS register.
                     
                     // We cast to 32-bit signed integers so we can accurately check for negative numbers
-                    int32_t result = (int32_t)r[src1] - (int32_t)r[src2];
+                    int32_t result = (int32_t)r[dest] - (int32_t)r[src1];
                     
                     flags = 0; // Clear the flags register first
 
@@ -179,7 +179,7 @@ public:
                     // If the CPU tries to write to the designated MMIO address (0xF000),
                     // we intercept it and print it to the terminal instead of saving to RAM!
                     if (addr == 0xF000) {
-                        std::cout << (char)val; 
+                        std::cout << val <<std::endl; 
                     } 
                     else {
                         // Otherwise, split the 16-bit value and save it to normal RAM
@@ -191,21 +191,21 @@ public:
                 // --- CONTROL FLOW & BRANCHING ---
 
                 case Opcode16::JMP:
-                    // Unconditional Jump: Just set the Program Counter to the address in the register
-                    pc = r[dest];
+                    // FIX: Unconditional Jump to the embedded 11-bit literal address
+                    pc = instruction & 0x7FF;
                     break;
 
                 case Opcode16::JEQ:
-                    // Jump if Equal: Check if Bit 0 (Zero Flag) is 1
+                    // FIX: Jump if Equal to the embedded 11-bit literal address
                     if (flags & (1 << 0)) {
-                        pc = r[dest];
+                        pc = instruction & 0x7FF;
                     }
                     break;
 
                 case Opcode16::JNE:
-                    // Jump if Not Equal: Check if Bit 0 (Zero Flag) is 0
+                    // FIX: Jump if Not Equal to the embedded 11-bit literal address
                     if (!(flags & (1 << 0))) {
-                        pc = r[dest];
+                        pc = instruction & 0x7FF;
                     }
                     break;
 
@@ -245,7 +245,7 @@ public:
                     pc = pop16();
                     break;
                 // --- NEW: 16-BIT ADDRESS LOADER ---
-                case Opcode16::LOAD_ADDR: 
+                case Opcode16::LOAD_ADDR: {
                     // 1. Fetch the NEXT two bytes from RAM as the raw 16-bit address
                     uint16_t fullAddress = (memory[pc] << 8) | memory[pc + 1];
                     
@@ -255,6 +255,7 @@ public:
                     // 3. Save it to the destination register
                     r[dest] = fullAddress;
                     break;
+                }
                 default:
                     std::cerr << "FATAL: Unknown Hardware Opcode: 0x" << std::hex << (int)opcode << " at PC: 0x" << (pc - 2) << "\n";
                     isRunning = false;
@@ -274,7 +275,7 @@ public:
         pc = 0x0000; 
         
         // The stack starts at the TOP of the stack memory map and grows downwards
-        sp = 0xEFFF; 
+        sp = 0xF000; 
         
         flags = 0;
 
