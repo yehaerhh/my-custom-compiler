@@ -9,46 +9,45 @@
 #include "Stmt.h"
 
 // Add this to the top of Compiler.h!
-    // Maps a Struct Name -> (Property Name -> Memory Offset in bytes)
-std::unordered_map<std::string, std::unordered_map<std::string, uint16_t>> structBlueprints;
-// Add to the top of Compiler.h
-std::unordered_map<std::string, uint16_t> globalPropertyOffsets;
+
 class Compiler : public ExprVisitor, public StmtVisitor {
 public:
     // --- ADD THESE MAPS HERE ---
+    // 1. Heavy Associative Maps & Vectors First
     std::unordered_map<std::string, uint16_t> structSizes;
     std::unordered_map<std::string, uint16_t> globalPropertyOffsets;
-    // Add to the top of the Compiler class:
-    std::vector<Token> currentFunctionParams;
-    // ---------------------------
-    // --- TASK 88: THE ASSEMBLY OUTPUT ---
+    std::unordered_map<std::string, uint16_t> variables;
     std::vector<std::string> assemblyOutput;
+    std::vector<Token> currentFunctionParams;
+    std::string lastResultReg = "";
+
+    // 2. Medium Enums
+    TokenType lastCompareOp = TokenType::EQUAL_EQUAL;
+
+    // 3. 32-bit Integers
     int currentLine = 0;
-    int labelCounter = 0; // Used to generate unique labels like "end_if_1"
-
-    // --- TASK 89: NAIVE REGISTER ALLOCATOR ---
+    int labelCounter = 0;
     int nextReg = 0;
-    std::string lastResultReg = ""; // Tracks which register holds the latest calculation
 
+    // 4. Smallest Primitives packed at the very bottom
+    uint16_t nextRamAddress = 0x8000;
+    // FIX: Instant zero-allocation register lookup
     std::string allocateReg() {
         if (nextReg > 7) { 
             std::cerr << "Compile Error: Out of registers!\n"; 
             return "R7"; 
         }
-        return "R" + std::to_string(nextReg++);
+        static const std::string regNames[] = {"R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"};
+        return regNames[nextReg++];
     }
 
     void freeReg() {
         if (nextReg > 0) nextReg--;
     }
 
-    // --- NAIVE MEMORY MAPPER ---
-    uint16_t nextRamAddress = 0x8000; // General RAM starts here!
-    std::unordered_map<std::string, uint16_t> variables;
-
     // The new emit helper!
     void emitLine(const std::string& line) {
-        assemblyOutput.push_back(line);
+        assemblyOutput.push_back(std::move(line));
     }
 
     // The main entry point for the Compiler
@@ -111,18 +110,31 @@ public:
     void visitIfStmt(const IfStmt* stmt) override {
         stmt->condition->accept(this);
 
+        std::string trueLabel = "if_true_" + std::to_string(labelCounter);
         std::string elseLabel = "else_" + std::to_string(labelCounter);
         std::string endLabel = "end_if_" + std::to_string(labelCounter++);
 
-        // Our condition (e.g. x == 5) sets the CPU flags.
-        // If it was false (Zero flag = 0), we jump to the else block
-        emitLine("    JNE " + elseLabel); 
+        // --- NEW: CONDITION CODE ROUTING (The Trampoline) ---
+        if (lastCompareOp == TokenType::EQUAL_EQUAL) {
+            emitLine("    JEQ " + trueLabel);
+        } else if (lastCompareOp == TokenType::LESS) {
+            emitLine("    JLT " + trueLabel);
+        } else if (lastCompareOp == TokenType::GREATER) {
+            emitLine("    JGT " + trueLabel);
+        }
         
+        // If the condition failed, fall through and jump to the else block!
+        emitLine("    JMP " + elseLabel);
+        // ----------------------------------------------------
+
         freeReg(); // Free the condition result
 
+        // The TRUE block
+        emitLine(trueLabel + ":");
         stmt->thenBranch->accept(this);
         emitLine("    JMP " + endLabel);
 
+        // The FALSE / ELSE block
         emitLine(elseLabel + ":");
         if (stmt->elseBranch != nullptr) {
             stmt->elseBranch->accept(this);
@@ -206,6 +218,7 @@ public:
             case TokenType::GREATER:
                 // Compare the two registers (Updates the CPU FLAGS!)
                 emitLine("    CMP " + leftReg + " " + rightReg); 
+                lastCompareOp = expr->op.type;
                 break;
             default: break;
         }
@@ -235,26 +248,38 @@ public:
     }
     void visitWhileStmt(const WhileStmt* stmt) override {
         std::string loopStart = "loop_start_" + std::to_string(labelCounter);
+        std::string loopBody = "loop_body_" + std::to_string(labelCounter);
         std::string loopEnd = "loop_end_" + std::to_string(labelCounter++);
 
         // 1. Drop the loop start anchor label
         emitLine(loopStart + ":");
         
-        // 2. Evaluate condition (e.g., n > 0). 
-        // This automatically emits your LOADs and your hardware CMP instruction, setting CPU flags!
+        // 2. Evaluate condition (Sets CPU flags and updates lastCompareOp)
         stmt->condition->accept(this); 
 
-        // 3. FIX: Change JNE to JEQ so it jumps to the end ONLY when the condition becomes false (0)
-        emitLine("    JEQ " + loopEnd); 
+        // --- NEW: CONDITION CODE ROUTING (The Trampoline) ---
+        if (lastCompareOp == TokenType::EQUAL_EQUAL) {
+            emitLine("    JEQ " + loopBody);
+        } else if (lastCompareOp == TokenType::LESS) {
+            emitLine("    JLT " + loopBody);
+        } else if (lastCompareOp == TokenType::GREATER) {
+            emitLine("    JGT " + loopBody);
+        }
+        
+        // If the condition fails, jump completely out of the loop
+        emitLine("    JMP " + loopEnd);
+        // ----------------------------------------------------
+        
         freeReg(); 
 
-        // 4. Run the desugared loop body (which includes your body + increment step)
+        // 3. The LOOP block
+        emitLine(loopBody + ":");
         stmt->body->accept(this); 
         
-        // 5. Jump back to the top of the loop
+        // 4. Jump back to evaluate the condition again
         emitLine("    JMP " + loopStart); 
 
-        // 6. Drop the loop exit anchor label
+        // 5. Drop the loop exit anchor label
         emitLine(loopEnd + ":");
     }
     void visitFunctionStmt(const FunctionStmt* stmt) override {

@@ -26,18 +26,15 @@ using Object = std::variant<
     std::shared_ptr<NativeFunction>
 >;
 
-// 3. INCLUDE CHUNK NOW (Because Chunk needs Object, which is now defined)
-#include "Chunk.h"
-
-// 4. FULLY DEFINE RUNTIMEFUNCTION (Because it needs Chunk)
+// 4. FULLY DEFINE RUNTIMEFUNCTION
 struct RuntimeFunction {
-    int arity;
-    std::string name;
+    std::string name;      // 32 bytes (Largest)
+    int arity;             // 4 bytes
+    bool isMarked = false; // 1 byte (Smallest)
 
-    bool isMarked = false; // <--- ADD THIS
-
+    // Constructor updated to match the new order!
     RuntimeFunction(std::string name, int arity)
-        : arity(arity), name(name) {} // Match the order here too
+        : name(std::move(name)), arity(arity) {} 
     
     std::string toString() const { return "<fn " + name + ">"; }
 };
@@ -246,14 +243,14 @@ public: // Everything must be public for the VM to access it!
     }
 };
 
-// Task 53: A wrapper for underlying C++ functions injected into the environment
+// Task 53: A wrapper for underlying C++ functions
 class NativeFunction {
 public:
-    int arity; // How many arguments the native function expects
-    std::function<Object(const std::vector<Object>&)> callable;
+    std::function<Object(const std::vector<Object>&)> callable; // 32+ bytes (Largest)
+    int arity; // 4 bytes (Smallest)
 
     NativeFunction(int arity, std::function<Object(const std::vector<Object>&)> callable)
-        : arity(arity), callable(std::move(callable)) {}
+        : callable(std::move(callable)), arity(arity) {}
 
     std::string toString() const { return "<native fn>"; }
 };

@@ -1,35 +1,42 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Name of your project
+# Project Name
 project(MyCompiler CXX)
 
 # Force modern C++ standards
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# --- 1. NEW: Strict Warnings & Debugging ---
-add_compile_options(-Wall -Wextra -Wpedantic -g)
+# --- 1. PRODUCTION OPTIMIZATION & WARNINGS ---
+# -O3: Maximum optimization (makes your compiler & VM run lightning fast)
+# -Wall -Wextra: Shows all potential code quality issues
+# -march=native: Optimizes the code specifically for YOUR actual CPU hardware
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-O3 -march=native -Wall -Wextra -Wpedantic)
+else()
+    # Debug mode keeps symbols (-g) and turns off optimizations for easier stepping
+    add_compile_options(-g -Wall -Wextra -Wpedantic)
+endif()
 
-# --- 2. NEW: Global Include Directory ---
+# --- 2. SOURCE MANAGEMENT ---
 include_directories(src)
 
-# --- 3. CHANGED: Auto-detect all source files ---
+# Professional tip: Explicitly listing files is safer than GLOB, 
+# but for a project this size, GLOB is perfectly fine.
 file(GLOB SOURCES "src/*.cpp")
 
-# Tell it to build the main executable using the auto-detected sources
+# Build the main compiler executable
 add_executable(compiler ${SOURCES})
 
-# --- YOUR GOOGLETEST SETUP (PRESERVED) ---
+# --- 3. TESTING SUITE ---
 enable_testing()
-
-# Find the GoogleTest library on your Arch system
 find_package(GTest REQUIRED)
 
-# Create a separate executable just for running tests
+# Test executable
 add_executable(compiler_tests tests/test_main.cpp)
 
-# Link GoogleTest to your test executable
+# Link GoogleTest and threading libraries
 target_link_libraries(compiler_tests GTest::GTest GTest::Main pthread)
 
-# Register the test with CTest
+# Register tests
 add_test(NAME SanityCheck COMMAND compiler_tests)

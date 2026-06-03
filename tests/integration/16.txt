@@ -1,0 +1,23 @@
+struct Unit [
+    let health;
+    let attack;
+];
+
+struct GameState [
+    let activeUnit;
+    let turn;
+];
+
+let godKing = Unit();
+godKing->health = 5000;
+godKing->attack = 250;
+
+let board = GameState();
+board->turn = 1;
+board->activeUnit = godKing; // Pointer saved inside another struct
+
+// THE TEST: Double property access!
+// Does the compiler correctly evaluate (board->activeUnit)->health ?
+let currentHealth = board->activeUnit->health;
+
+print currentHealth;

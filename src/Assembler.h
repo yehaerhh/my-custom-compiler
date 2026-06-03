@@ -17,20 +17,23 @@ public:
         
         uint16_t currentAddress = 0; 
         
+        int lineNumber = 0;
+
+        // --- PASS 1: LABEL RESOLUTION ---
         for (const std::string& line : sourceCode) {
+            lineNumber++;
             if (line.empty()) continue;
 
             if (line.back() == ':') {
                 std::string labelName = line.substr(0, line.length() - 1);
                 symbolTable[labelName] = currentAddress; 
             } else {
-                std::vector<std::string> tokens = tokenize(line);
-                
-                // FIX: If the line was just spaces or comments, skip it without advancing RAM address!
-                if (tokens.empty()) continue; 
+                // FIX: If it's just spaces, skip it
+                if (line.find_first_not_of(" \t") == std::string::npos) continue;
 
-                // If it's a LOAD_ADDR, it takes 4 bytes in RAM. Everything else takes 2 bytes.
-                if (tokens[0] == "LOAD_ADDR") {
+                // FIX: Bypass the heavy Tokenizer completely! 
+                // Just check if the string contains the word LOAD_ADDR
+                if (line.find("LOAD_ADDR") != std::string::npos) {
                     currentAddress += 4; 
                 } else {
                     currentAddress += 2; 
@@ -39,7 +42,9 @@ public:
         }
 
         // --- PASS 2: GENERATE BINARY ---
+        lineNumber = 0;
         for (const std::string& line : sourceCode) {
+            lineNumber++;
             // Skip empty lines and labels
             if (line.empty() || line.back() == ':') continue;
 
@@ -55,7 +60,7 @@ public:
             // --- THE FIXED REFACTOR LOCATION ---
             // assembleLine now returns a vector of words. We fetch that vector,
             // iterate through it, and push each word into our final machine code.
-            std::vector<uint16_t> instructionWords = assembleLine(tokens);
+            std::vector<uint16_t> instructionWords = assembleLine(tokens, lineNumber);
             for (uint16_t word : instructionWords) {
                 binary.push_back(word);
             }
@@ -80,9 +85,9 @@ public:
 
     // Notice we changed this to accept the already-tokenized array!
     // Change the return type from uint16_t to std::vector<uint16_t>
-    std::vector<uint16_t> assembleLine(const std::vector<std::string>& tokens) {
+    std::vector<uint16_t> assembleLine(const std::vector<std::string>& tokens, int lineNumber) {
         if (tokens.empty()) return {};
-        std::string mnemonic = tokens[0];
+        const std::string& mnemonic = tokens[0];
 
         // --- FORMAT B: IMMEDIATE LOADS (Opcodes take an 8-bit immediate) ---
         if (mnemonic == "MOV_IMM") {
@@ -145,6 +150,16 @@ public:
             uint16_t src2 = parseRegister(tokens[2]);
             return { (uint16_t)((opcode << 11) | (src1 << 8) | (src2 << 5)) };
         }
+        else if (mnemonic == "JLT") {
+            uint16_t opcode = 0x10; // Matches Opcode16::JLT
+            uint16_t addr = std::stoi(tokens[1]); // Parse the label address
+            return { (uint16_t)((opcode << 11) | (addr & 0x7FF)) };
+        }
+        else if (mnemonic == "JGT") {
+            uint16_t opcode = 0x11; // Matches Opcode16::JGT
+            uint16_t addr = std::stoi(tokens[1]); // Parse the label address
+            return { (uint16_t)((opcode << 11) | (addr & 0x7FF)) };
+        }
         else if (mnemonic == "PUSH") {
             uint16_t opcode = 0x12; // Matches your Opcode16::PUSH
             uint16_t dest = parseRegister(tokens[1]);
@@ -191,7 +206,7 @@ public:
             return { (uint16_t)(opcode << 11) };
         }
 
-        std::cerr << "Assembler Error: Unknown instruction " << mnemonic << "\n";
-        return {};
+        std::cerr << "Assembler Error [Line " <<lineNumber<< "] Unknown instruction " << mnemonic << "\n";
+        return { 0x0000};
     }
 };

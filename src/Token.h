@@ -32,12 +32,15 @@ using LiteralValue = std::variant<std::monostate, double, std::string, bool>;
 
 // 3. The core Token structure
 struct Token {
+    // 1. Largest items first (32 bytes each)
+    std::string lexeme;   
+    LiteralValue literal; 
+    
+    // 2. Smallest items packed at the bottom (4 bytes each)
     TokenType type;
-    std::string lexeme;   // The exact raw text (e.g., "let", "->", "100")
-    LiteralValue literal; // The parsed value (if it's a string or number)
-    int line;             // For printing accurate error messages
+    int line;             
 
-    // Constructor
+    // Constructor (Notice we keep the std::move! That prevents deep-copying memory)
     Token(TokenType type, std::string lexeme, LiteralValue literal, int line)
-        : type(type), lexeme(std::move(lexeme)), literal(std::move(literal)), line(line) {}
+        : lexeme(std::move(lexeme)), literal(std::move(literal)), type(type), line(line) {}
 };

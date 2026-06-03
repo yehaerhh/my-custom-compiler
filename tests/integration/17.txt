@@ -1,0 +1,12 @@
+let alpha = 99; // Global alpha weight
+
+fn calculateSignal(alpha) [
+    // This should ONLY modify the local parameter, not the global!
+    alpha = alpha + 50;
+    return alpha;
+]
+
+let signal = calculateSignal(10); // Local alpha becomes 60
+
+// If scope isolation works, the global alpha should still be untouched!
+print alpha;

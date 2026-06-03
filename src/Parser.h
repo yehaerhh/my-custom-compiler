@@ -15,12 +15,12 @@ private:
     // --- 1. Navigation Helpers ---
     
     // Look at the current token without consuming it
-    Token peek() const {
+    const Token& peek() const {
         return tokens[current];
     }
 
     // Look at the most recently consumed token
-    Token previous() const {
+    const Token& previous() const {
         return tokens[current - 1];
     }
 
@@ -43,7 +43,7 @@ private:
     }
 
     // If the current token matches ANY of the provided types, consume it and return true.
-    bool match(const std::vector<TokenType>& types) {
+    bool match(const std::initializer_list<TokenType>& types) {
         for (TokenType type : types) {
             if (check(type)) {
                 advance();
@@ -407,20 +407,6 @@ private:
             Token op = previous();
             std::unique_ptr<Expr> right = factor();
             expr = std::make_unique<Binary>(std::move(expr), std::move(op), std::move(right));
-        }
-
-        return expr;
-    }
-
-    // Task 28: Parse Struct Access (my_car->speed)
-    std::unique_ptr<Expr> access() {
-        std::unique_ptr<Expr> expr = primary(); // Grab the object first (e.g., my_car)
-
-        // While we keep seeing '->', keep chaining them (e.g., my_car->engine->cylinders)
-        while (match({TokenType::ARROW})) {
-            // If we see an arrow, the VERY NEXT token MUST be a variable name
-            Token property = consume(TokenType::IDENTIFIER, "Expect property name after '->'.");
-            expr = std::make_unique<StructAccess>(std::move(expr), std::move(property));
         }
 
         return expr;

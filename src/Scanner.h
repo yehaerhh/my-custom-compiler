@@ -15,7 +15,7 @@ private:
     int line = 1;
 
     // Task 19: The Keyword Dictionary
-    std::unordered_map<std::string, TokenType> keywords = {
+    inline static const std::unordered_map<std::string, TokenType> keywords = {
         {"let",    TokenType::KW_LET},
         {"if",     TokenType::KW_IF},
         {"else",   TokenType::KW_ELSE},
@@ -80,12 +80,12 @@ private:
 
     // Adds a token with no literal value (like a '+' or ']')
     void addToken(TokenType type) {
-        tokens.push_back(Token(type, source.substr(start, current - start), std::monostate{}, line));
+        tokens.emplace_back(Token(type, source.substr(start, current - start), std::monostate{}, line));
     }
 
     // Adds a token with a literal value (like a number or string)
     void addToken(TokenType type, LiteralValue literal) {
-        tokens.push_back(Token(type, source.substr(start, current - start), literal, line));
+        tokens.emplace_back(Token(type, source.substr(start, current - start), std::move(literal), line));
     }
 
     // Task 16: String Literal Scanning
@@ -241,6 +241,9 @@ public:
 
     // Task 12: The Main Scanner Loop
     std::vector<Token> scanTokens() {
+        // FIX: Pre-allocate RAM to prevent massive vector copy operations!
+        tokens.reserve(source.length() / 5);
+
         while (!isAtEnd()) {
             // We are at the beginning of the next lexeme.
             start = current;

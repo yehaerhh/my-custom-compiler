@@ -1,0 +1,19 @@
+let targetSlip = 0;
+let wheelSpeed = 10;
+
+// Outer loop (using the 'for' syntax you built in Test 11!)
+let i = 3;
+for (i = 3; i > 0; i = i - 1) [
+    
+    // Inner conditional nested inside the loop
+    if (wheelSpeed > 5) [
+        targetSlip = targetSlip + 2;
+    ]
+    
+    wheelSpeed = wheelSpeed - 2;
+]
+
+// Iteration 3 (i=3): speed 10 (>5), slip + 2. (speed becomes 8)
+// Iteration 2 (i=2): speed 8 (>5), slip + 2.  (speed becomes 6)
+// Iteration 1 (i=1): speed 6 (>5), slip + 2.  (speed becomes 4)
+print targetSlip;

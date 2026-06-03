@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
+#include <cstring>
 
 // 1. The Language of the Hardware
 enum class Opcode16 : uint8_t {
@@ -212,14 +213,14 @@ public:
                 case Opcode16::JLT:
                     // Jump if Less Than: Check if Bit 1 (Negative Flag) is 1
                     if (flags & (1 << 1)) {
-                        pc = r[dest];
+                        pc = instruction & 0x7FF; // <-- CHANGED from r[dest]
                     }
                     break;
 
                 case Opcode16::JGT:
                     // Jump if Greater Than: Must NOT be Zero, and MUST NOT be Negative
                     if (!(flags & (1 << 0)) && !(flags & (1 << 1))) {
-                        pc = r[dest];
+                        pc = instruction & 0x7FF; // <-- CHANGED from r[dest]
                     }
                     break;
                 // --- THE HARDWARE STACK ---               
@@ -265,11 +266,10 @@ public:
     }
 
     // Hardware Reset Button
+    // Hardware Reset Button
     void reset() {
-        // Zero out the registers
-        for (int i = 0; i < 8; i++) {
-            r[i] = 0;
-        }
+        // Instant hardware-level zeroing of the registers
+        std::memset(r, 0, sizeof(r));
         
         // Boot at the very beginning of the ROM
         pc = 0x0000; 
@@ -279,9 +279,7 @@ public:
         
         flags = 0;
 
-        // Wipe the RAM clean
-        for (int i = 0; i < 65536; i++) {
-            memory[i] = 0;
-        }
+        // Instant hardware-level zeroing of the 64KB RAM
+        std::memset(memory, 0, sizeof(memory));
     }
 };
